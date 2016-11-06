@@ -102,10 +102,10 @@ public class PackAndPublishBuildProcess extends OctopusBuildProcess {
             getLogger().logMessage(DefaultMessagesInfo.createTextMessage("  none"));
         } else {
             for (File file : files) {
-                final String relativeName = FileUtil.getRelativePath(getWorkingDirectory(), file);
+                final String absoluteFileName = FileUtil.getNameOrAbsolutePath(getWorkingDirectory(), file);
 
-                result.add(relativeName);
-                getLogger().logMessage(DefaultMessagesInfo.createTextMessage("  " + relativeName));
+                result.add(absoluteFileName);
+                getLogger().logMessage(DefaultMessagesInfo.createTextMessage("  " + absoluteFileName));
             }
         }
 
