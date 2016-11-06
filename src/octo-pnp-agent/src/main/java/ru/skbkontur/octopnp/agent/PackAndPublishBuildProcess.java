@@ -60,6 +60,17 @@ class PackAndPublishBuildProcess implements BuildProcess {
             NugetCommandBuilder packCmdBuilder = createNugetPackCommandBuilder(nuspecFile);
             runNuget(packCmdBuilder);
         }
+
+        File[] nupkgFiles = workingDir.listFiles(new FilenameFilter() {
+            @Override
+            public boolean accept(File dir, String name) {
+                return name.endsWith(".nupkg");
+            }
+        });
+        for (File nupkgFile : nupkgFiles) {
+            NugetCommandBuilder pushCmdBuilder = createNugetPushCommandBuilder(nupkgFile.getAbsolutePath());
+            runNuget(pushCmdBuilder);
+        }
     }
 
     private void runNuget(@NotNull final NugetCommandBuilder cmdBuilder) throws RunBuildException {

@@ -34,11 +34,11 @@ class NugetCommandBuilder {
     }
 
     @NotNull
-    private String[] buildCommand(boolean masked) {
+    private String[] buildCommand(boolean mask) {
         final String[] result = new String[args.size()];
         for (int i = 0, argsSize = args.size(); i < argsSize; i++) {
             Map.Entry arg = args.get(i);
-            result[i] = masked && (Boolean)arg.getValue() ? "SECRET" : (String)arg.getKey();
+            result[i] = mask && (Boolean)arg.getValue() ? "SECRET" : (String)arg.getKey();
         }
         return result;
     }
