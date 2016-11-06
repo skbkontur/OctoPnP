@@ -3,39 +3,29 @@ package ru.skbkontur.octopnp.agent;
 import java.io.*;
 import java.lang.*;
 
-public class EmbeddedResourceExtractor {
-    public void extractNugetTo(String destinationPath) throws Exception {
-        extractFile("/nuget.exe", destinationPath + "\\nuget.exe");
+class EmbeddedResourceExtractor {
+    void extractNugetTo(String destinationPath) throws Exception {
+        extractFileIfNotExists("/nuget.exe", destinationPath + "\\nuget.exe");
     }
 
-    private void extractFile(String resourceName, String destinationName) throws Exception {
-        int attempts = 0;
-        while (true) {
-            attempts++;
+    private void extractFileIfNotExists(String resourceName, String destinationName) throws Exception {
+        File file = new File(destinationName);
+        if (file.exists())
+            return;
 
-            try {
-                File file = new File(destinationName);
-                if (file.exists())
-                    return;
+        InputStream is = getClass().getResourceAsStream(resourceName);
+        if (is == null)
+            throw new Exception("Resource " + resourceName + " was not found");
 
-                InputStream is = getClass().getResourceAsStream(resourceName);
-                OutputStream os = new FileOutputStream(destinationName, false);
+        OutputStream os = new FileOutputStream(destinationName, false);
 
-                byte[] buffer = new byte[4096];
-                int length;
-                while ((length = is.read(buffer)) > 0) {
-                    os.write(buffer, 0, length);
-                }
-
-                os.close();
-                is.close();
-            }
-            catch (Exception ex) {
-                Thread.sleep(4000);
-                if (attempts > 3) {
-                    throw ex;
-                }
-            }
+        byte[] buffer = new byte[4096];
+        int length;
+        while ((length = is.read(buffer)) > 0) {
+            os.write(buffer, 0, length);
         }
+
+        os.close();
+        is.close();
     }
 }

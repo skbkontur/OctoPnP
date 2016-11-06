@@ -10,15 +10,13 @@ import ru.skbkontur.octopnp.CommonConstants;
 
 public class PackAndPublishRunner implements AgentBuildRunner {
     private static final Logger LOG = Loggers.SERVER;
-    protected final ExtensionHolder myExtensionHolder;
 
     public PackAndPublishRunner(@NotNull final ExtensionHolder extensionHolder) {
-        myExtensionHolder = extensionHolder;
     }
 
     @NotNull
     public BuildProcess createBuildProcess(@NotNull AgentRunningBuild runningBuild, @NotNull BuildRunnerContext context) throws RunBuildException {
-        return new PackAndPublishBuildProcess(runningBuild, context, myExtensionHolder);
+        return new PackAndPublishBuildProcess(runningBuild, context);
     }
 
     @NotNull

@@ -1,138 +1,215 @@
 package ru.skbkontur.octopnp.agent;
 
-import jetbrains.buildServer.ExtensionHolder;
+import com.intellij.openapi.diagnostic.Logger;
 import jetbrains.buildServer.RunBuildException;
-import jetbrains.buildServer.agent.AgentRunningBuild;
-import jetbrains.buildServer.agent.BuildProgressLogger;
-import jetbrains.buildServer.agent.BuildRunnerContext;
+import jetbrains.buildServer.agent.*;
+import jetbrains.buildServer.agent.runner.LoggingProcessListener;
 import jetbrains.buildServer.messages.DefaultMessagesInfo;
-import jetbrains.buildServer.util.FileUtil;
 import jetbrains.buildServer.util.StringUtil;
 import jetbrains.buildServer.util.pathMatcher.AntPatternFileCollector;
+import org.apache.commons.io.FileUtils;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+import org.springframework.util.StringUtils;
 import ru.skbkontur.octopnp.CommonConstants;
 
-import java.io.File;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import java.io.*;
+import java.util.*;
 
-public class PackAndPublishBuildProcess extends OctopusBuildProcess {
+class PackAndPublishBuildProcess implements BuildProcess {
+    private final BuildProgressLogger logger;
+    private final boolean failBuildOnExitCode;
+    private final File checkoutDir;
+    private final File workingDir;
+    private final Map<String, String> runnerParameters;
+    private final CommonConstants octopnpConstants;
+    private OutputReaderThread standardError;
+    private OutputReaderThread standardOutput;
+    private Process nugetProcess;
+    private boolean isFinished;
 
-    protected final ExtensionHolder myExtensionHolder;
-    protected final AgentRunningBuild myRunningBuild;
-
-    public PackAndPublishBuildProcess(@NotNull AgentRunningBuild runningBuild, @NotNull BuildRunnerContext context, @NotNull final ExtensionHolder extensionHolder) {
-       super(runningBuild, context);
-
-        myExtensionHolder = extensionHolder;
-        myRunningBuild = runningBuild;
+    PackAndPublishBuildProcess(@NotNull AgentRunningBuild runningBuild, @NotNull BuildRunnerContext buildRunnerContext) {
+        logger = runningBuild.getBuildLogger();
+        failBuildOnExitCode = runningBuild.getFailBuildOnExitCode();
+        checkoutDir = runningBuild.getCheckoutDirectory();
+        workingDir = new File(runningBuild.getBuildTempDirectory(), "octopnpTmp");
+        runnerParameters = buildRunnerContext.getRunnerParameters();
+        octopnpConstants = new CommonConstants();
     }
 
-    @Override
-    protected String getLogMessage() {
-        return "Packing and publishing deployment packages to Octopus server";
+    public boolean isInterrupted() {
+        return false;
     }
 
-    @Override
+    public boolean isFinished() {
+        return isFinished;
+    }
+
+    public void interrupt() {
+        if (nugetProcess != null) {
+            nugetProcess.destroy();
+        }
+    }
+
     public void start() throws RunBuildException {
+        final String nuspecPaths = runnerParameters.get(octopnpConstants.getNuspecPathsKey());
+        final List<String> nuspecFiles = resolveNuspecAbsoluteFileNames(nuspecPaths);
+        resetWorkingDir();
+        extractNugetExe();
+        for (String nuspecFile : nuspecFiles) {
+            NugetCommandBuilder packCmdBuilder = createNugetPackCommandBuilder(nuspecFile);
+            runNuget(packCmdBuilder);
+        }
+    }
 
-        final Map<String, String> parameters = getContext().getRunnerParameters();
-        final CommonConstants constants = new CommonConstants();
-        final String nuspecPaths = parameters.get(constants.getNuspecPathsKey());
+    private void runNuget(@NotNull final NugetCommandBuilder cmdBuilder) throws RunBuildException {
+        logger.activityStarted("Nuget.exe", DefaultMessagesInfo.BLOCK_TYPE_INDENTATION);
+        logger.message("Running command: " + StringUtils.arrayToDelimitedString(cmdBuilder.buildMaskedCommand(), " "));
+        try {
+            Runtime runtime = Runtime.getRuntime();
+            nugetProcess = runtime.exec(cmdBuilder.buildCommand(), null, workingDir);
+            final LoggingProcessListener listener = new LoggingProcessListener(logger);
+            standardError = new OutputReaderThread(nugetProcess.getErrorStream(), new OutputWriter() {
+                public void write(String text) {
+                    listener.onErrorOutput(text);
+                }
+            });
+            standardOutput = new OutputReaderThread(nugetProcess.getInputStream(), new OutputWriter() {
+                public void write(String text) {
+                    listener.onStandardOutput(text);
+                }
+            });
+            standardError.start();
+            standardOutput.start();
+        } catch (IOException e) {
+            final String message = "Failed to run nuget.exe: " + e.getMessage();
+            Logger.getInstance(getClass().getName()).error(message, e);
+            throw new RunBuildException(message);
+        }
+    }
 
-        getLogger().logMessage(DefaultMessagesInfo.createTextMessage("nuspecPaths: " + nuspecPaths));
-        final List<String> nuspecFiles = matchFiles(nuspecPaths);
-        if (nuspecFiles.size() == 0) {
-            throw new RunBuildException("No files matched the pattern");
+    @NotNull
+    public BuildFinishedStatus waitFor() throws RunBuildException {
+        int exitCode;
+        try {
+            exitCode = nugetProcess.waitFor();
+            standardError.join();
+            standardOutput.join();
+            logger.message("nuget.exe exit code: " + exitCode);
+            logger.activityFinished("Nuget.exe", DefaultMessagesInfo.BLOCK_TYPE_INDENTATION);
+            isFinished = true;
+        } catch (InterruptedException e) {
+            isFinished = true;
+            final String message = "Unable to wait for nuget.exe: " + e.getMessage();
+            Logger.getInstance(getClass().getName()).error(message, e);
+            throw new RunBuildException(message);
         }
 
-        extractNugetExe();
-        OctopusCommandBuilder arguments = createCommand(nuspecFiles);
-        runNuget(arguments);
+        if (exitCode == 0)
+            return BuildFinishedStatus.FINISHED_SUCCESS;
+
+        logger.progressFinished();
+        String message = "Unable to create or deploy release. Please check the build log for details on the error.";
+
+        if (failBuildOnExitCode) {
+            logger.buildFailureDescription(message);
+            return BuildFinishedStatus.FINISHED_FAILED;
+        } else {
+            logger.error(message);
+            return BuildFinishedStatus.FINISHED_SUCCESS;
+        }
     }
 
-    protected OctopusCommandBuilder createCommand(final List<String> nuspecFiles) {
-        final Map<String, String> parameters = getContext().getRunnerParameters();
-        final CommonConstants constants = new CommonConstants();
+    @NotNull
+    private NugetCommandBuilder createNugetPackCommandBuilder(@NotNull final String nuspecFile) {
+        String packageVersion = null;
+        final String packageVersionKey = octopnpConstants.getPackageVersionKey();
+        if (runnerParameters.containsKey(packageVersionKey)) {
+            packageVersion = runnerParameters.get(packageVersionKey);
+        }
 
-        return new OctopusCommandBuilder() {
-            @Override
-            protected String[] buildCommand(boolean masked) {
-                final ArrayList<String> commands = new ArrayList<String>();
-                final String serverUrl = parameters.get(constants.getOctopusServerUrlKey());
-                final String apiKey = parameters.get(constants.getOctopusApiKey());
-
-                String packageVersion = null;
-                final String packageVersionKey = constants.getPackageVersionKey();
-                if (parameters.containsKey(packageVersionKey)) {
-                    packageVersion = parameters.get(packageVersionKey);
-                }
-
-                commands.add("pack");
-                for (String nuspecFile : nuspecFiles) {
-                        commands.add(nuspecFile);
-                }
-                commands.add("-NoPackageAnalysis");
-                if (!StringUtil.isEmptyOrSpaces(packageVersion))
-                {
-                    commands.add("-Version");
-                    commands.add(packageVersion);
-                }
-                commands.add("-OutputDirectory");
-                commands.add(extractedTo.getAbsolutePath());
-
-                /*commands.add("--server");
-                commands.add(serverUrl);
-                commands.add("--apikey");
-                commands.add(masked ? "SECRET" : apiKey);*/
-
-                return commands.toArray(new String[commands.size()]);
-            }
-        };
+        NugetCommandBuilder builder = new NugetCommandBuilder(workingDir);
+        builder.addArg("pack");
+        builder.addArg(nuspecFile);
+        builder.addArg("-NonInteractive");
+        builder.addArg("-NoPackageAnalysis");
+        if (!StringUtil.isEmptyOrSpaces(packageVersion)) {
+            builder.addArg("-Version");
+            builder.addArg(packageVersion);
+        }
+        builder.addArg("-OutputDirectory");
+        builder.addArg(workingDir.getAbsolutePath());
+        return builder;
     }
 
-    private List<String> matchFiles(String nuspecPaths) {
-        final List<File> files = AntPatternFileCollector.scanDir(getCheckoutDirectory(), splitFileWildcards(nuspecPaths), new String[0], null);
+    @NotNull
+    private NugetCommandBuilder createNugetPushCommandBuilder(@NotNull final String nupkgFile) {
+        final String octopusApiKey = runnerParameters.get(octopnpConstants.getOctopusApiKey());
+        final String octopusServerUrl = runnerParameters.get(octopnpConstants.getOctopusServerUrlKey());
 
-        getLogger().logMessage(DefaultMessagesInfo.createTextMessage("Matched .nuspec files:"));
+        NugetCommandBuilder builder = new NugetCommandBuilder(workingDir);
+        builder.addArg("push");
+        builder.addArg(nupkgFile);
+        builder.addArg("-NonInteractive");
+        builder.addArg("-Source");
+        builder.addArg(octopusServerUrl);
+        builder.addArg("-ApiKey");
+        builder.addMaskableArg(octopusApiKey);
+        builder.addArg("-Timeout");
+        builder.addArg("300");
+        return builder;
+    }
 
+    private void extractNugetExe() throws RunBuildException {
+        try {
+            new EmbeddedResourceExtractor().extractNugetTo(workingDir.getAbsolutePath());
+        } catch (Exception e) {
+            final String message = "Unable to extract nuget.exe into " + workingDir + ": " + e.getMessage();
+            Logger.getInstance(getClass().getName()).error(message, e);
+            throw new RunBuildException(message);
+        }
+    }
+
+    private void resetWorkingDir() throws RunBuildException {
+        try {
+            FileUtils.deleteDirectory(workingDir);
+        } catch (Exception e) {
+            final String message = "Unable to delete temp working directory " + workingDir + ": " + e.getMessage();
+            Logger.getInstance(getClass().getName()).error(message, e);
+            throw new RunBuildException(message);
+        }
+        if (!workingDir.mkdirs())
+            throw new RuntimeException("Unable to create temp working directory " + workingDir);
+    }
+
+    @NotNull
+    private List<String> resolveNuspecAbsoluteFileNames(@Nullable final String nuspecPaths) throws RunBuildException {
+        logger.message("Resolving nuspecPaths: " + nuspecPaths);
+        final List<File> files = AntPatternFileCollector.scanDir(checkoutDir, splitFileWildcards(nuspecPaths), new String[0], null);
+        logger.message("Matched .nuspec files:");
         final List<String> result = new ArrayList<String>(files.size());
         if (files.size() == 0) {
-            getLogger().logMessage(DefaultMessagesInfo.createTextMessage("  none"));
+            logger.message("  none");
         } else {
             for (File file : files) {
-                final String absoluteFileName = FileUtil.getNameOrAbsolutePath(getWorkingDirectory(), file);
-
+                final String absoluteFileName = file.getAbsolutePath();
                 result.add(absoluteFileName);
-                getLogger().logMessage(DefaultMessagesInfo.createTextMessage("  " + absoluteFileName));
+                logger.message("  " + absoluteFileName);
             }
         }
-
+        if (result.size() == 0) {
+            throw new RunBuildException("No files matched the pattern: " + nuspecPaths);
+        }
         return result;
     }
 
-    private static String[] splitFileWildcards(final String string) {
-        if (string != null) {
-            final String filesStringWithSpaces = string.replace('\n', ' ').replace('\r', ' ').replace('\\', '/');
-            final List<String> split = StringUtil.splitCommandArgumentsAndUnquote(filesStringWithSpaces);
-            return split.toArray(new String[split.size()]);
-        }
-
-        return new String[0];
-    }
-
     @NotNull
-    public final BuildProgressLogger getLogger() {
-        return this.runningBuild.getBuildLogger();
-    }
-
-    @NotNull
-    protected final File getWorkingDirectory() {
-        return this.runningBuild.getBuildTempDirectory();
-    }
-
-    public File getCheckoutDirectory() {
-        return this.runningBuild.getCheckoutDirectory();
+    private static String[] splitFileWildcards(@Nullable final String string) {
+        if (string == null) return new String[0];
+        final String filesStringWithSpaces = string.replace('\n', ' ').replace('\r', ' ').replace('\\', '/');
+        final List<String> split = StringUtil.splitCommandArgumentsAndUnquote(filesStringWithSpaces);
+        return split.toArray(new String[split.size()]);
     }
 }
+
+

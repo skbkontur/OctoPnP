@@ -28,14 +28,16 @@ public class PackAndPublishRunType extends RunType {
         return CommonConstants.OCTOPNP_PACK_AND_PUBLISH_RUNNER_TYPE;
     }
 
+    @NotNull
     @Override
     public String getDisplayName() {
         return "OctoPnP: Pack and Publish";
     }
 
+    @NotNull
     @Override
     public String getDescription() {
-        return "Creates Octopus-compatible NuGet-packages and publishes them to Octopus Deploy";
+        return "Create Octopus-compatible NuGet-packages and publish them to Octopus";
     }
 
     @Nullable
@@ -55,12 +57,12 @@ public class PackAndPublishRunType extends RunType {
             @NotNull
             public Collection<InvalidProperty> process(@Nullable final Map<String, String> p) {
                 final Collection<InvalidProperty> result = new ArrayList<InvalidProperty>();
-                if (p == null) return result;
+                if (p != null) {
 
-                checkNotEmpty(p, c.getOctopusApiKey(), "Octopus API key must be specified", result);
-                checkNotEmpty(p, c.getOctopusServerUrlKey(), "Octopus server URL must be specified", result);
-                checkNotEmpty(p, c.getNuspecPathsKey(), "Nuspec paths must be specified", result);
-
+                    checkNotEmpty(p, c.getOctopusApiKey(), "Octopus API key must be specified", result);
+                    checkNotEmpty(p, c.getOctopusServerUrlKey(), "Octopus server URL must be specified", result);
+                    checkNotEmpty(p, c.getNuspecPathsKey(), "Nuspec paths must be specified", result);
+                }
                 return result;
             }
         };
@@ -81,7 +83,6 @@ public class PackAndPublishRunType extends RunType {
     @Nullable
     @Override
     public Map<String, String> getDefaultRunnerProperties() {
-        final Map<String, String> map = new HashMap<String, String>();
-        return map;
+        return new HashMap<String, String>();
     }
 }
