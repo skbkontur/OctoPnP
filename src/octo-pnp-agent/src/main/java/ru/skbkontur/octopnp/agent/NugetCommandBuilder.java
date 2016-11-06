@@ -1,27 +1,26 @@
 package ru.skbkontur.octopnp.agent;
 
-import javafx.util.Pair;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
+import java.util.AbstractMap;
 import java.util.ArrayList;
+import java.util.Map;
 
 class NugetCommandBuilder {
-    private final File workingDir;
-    private final ArrayList<Pair<String, Boolean>> args;
+    private final ArrayList<Map.Entry<String, Boolean>> args;
 
     NugetCommandBuilder(@NotNull final File workingDir) {
-        this.workingDir = workingDir;
-        args = new ArrayList<Pair<String, Boolean>>();
+        args = new ArrayList<Map.Entry<String, Boolean>>();
         addArg(new File(workingDir, "nuget.exe").getAbsolutePath());
     }
 
     void addArg(@NotNull final String arg) {
-        args.add(new Pair(arg, false));
+        args.add(new AbstractMap.SimpleEntry(arg, false));
     }
 
     void addMaskableArg(@NotNull final String arg) {
-        args.add(new Pair(arg, true));
+        args.add(new AbstractMap.SimpleEntry(arg, true));
     }
 
     @NotNull
@@ -38,8 +37,8 @@ class NugetCommandBuilder {
     private String[] buildCommand(boolean masked) {
         final String[] result = new String[args.size()];
         for (int i = 0, argsSize = args.size(); i < argsSize; i++) {
-            Pair<String, Boolean> arg = args.get(i);
-            result[i] = masked && arg.getValue() ? "SECRET" : arg.getKey();
+            Map.Entry arg = args.get(i);
+            result[i] = masked && (Boolean)arg.getValue() ? "SECRET" : (String)arg.getKey();
         }
         return result;
     }
