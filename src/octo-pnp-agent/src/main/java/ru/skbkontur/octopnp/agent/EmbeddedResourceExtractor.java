@@ -4,22 +4,8 @@ import java.io.*;
 import java.lang.*;
 
 public class EmbeddedResourceExtractor {
-    public void extractTo(String destinationPath) throws Exception {
-        ensureDirectory(destinationPath, "1.0");
-        extractFile("/resources/1/0/octo.exe", destinationPath + "\\1.0\\Octo.exe");
-        extractFile("/resources/1/0/Octo.exe.config", destinationPath + "\\1.0\\Octo.exe.config");
-
-        ensureDirectory(destinationPath, "2.0");
-        extractFile("/resources/2/0/Octo.exe", destinationPath + "\\2.0\\Octo.exe");
-        extractFile("/resources/2/0/Octo.exe.config", destinationPath + "\\2.0\\Octo.exe.config");
-
-        ensureDirectory(destinationPath, "3.0");
-        extractFile("/resources/3/0/Octo.exe", destinationPath + "\\3.0\\Octo.exe");
-        extractFile("/resources/3/0/Octo.exe.config", destinationPath + "\\3.0\\Octo.exe.config");
-	}
-
     public void extractNugetTo(String destinationPath) throws Exception {
-        extractFile("/resources/nuget.exe", destinationPath + "\\nuget.exe");
+        extractFile("/nuget.exe", destinationPath + "\\nuget.exe");
     }
 
     private void extractFile(String resourceName, String destinationName) throws Exception {
@@ -51,14 +37,5 @@ public class EmbeddedResourceExtractor {
                 }
             }
         }
-    }
-
-    private void ensureDirectory(String destinationPath, String version) {
-        File extractedTo = new File(destinationPath, version);
-        if (extractedTo.exists())
-            return;
-
-        if (!extractedTo.mkdirs())
-            throw new RuntimeException("Unable to create temp output directory " + extractedTo);
     }
 }
