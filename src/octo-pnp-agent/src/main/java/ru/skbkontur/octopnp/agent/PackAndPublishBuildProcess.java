@@ -3,30 +3,30 @@ package ru.skbkontur.octopnp.agent;
 import com.intellij.openapi.diagnostic.Logger;
 import jetbrains.buildServer.RunBuildException;
 import jetbrains.buildServer.agent.*;
-import jetbrains.buildServer.agent.runner.LoggingProcessListener;
-import jetbrains.buildServer.messages.DefaultMessagesInfo;
 import jetbrains.buildServer.util.StringUtil;
 import jetbrains.buildServer.util.pathMatcher.AntPatternFileCollector;
 import org.apache.commons.io.FileUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.springframework.util.StringUtils;
 import ru.skbkontur.octopnp.CommonConstants;
 
-import java.io.*;
-import java.util.*;
+import java.io.File;
+import java.io.FilenameFilter;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.*;
 
-class PackAndPublishBuildProcess implements BuildProcess {
+class PackAndPublishBuildProcess implements BuildProcess, Callable<BuildFinishedStatus> {
+    private final Logger LOG = Logger.getInstance(getClass().getName());
     private final BuildProgressLogger logger;
     private final boolean failBuildOnExitCode;
     private final File checkoutDir;
     private final File workingDir;
     private final Map<String, String> runnerParameters;
     private final CommonConstants octopnpConstants;
-    private OutputReaderThread standardError;
-    private OutputReaderThread standardOutput;
-    private Process nugetProcess;
-    private boolean isFinished;
+    private List<String> nuspecFiles;
+    private Future<BuildFinishedStatus> buildProcessFuture;
 
     PackAndPublishBuildProcess(@NotNull AgentRunningBuild runningBuild, @NotNull BuildRunnerContext buildRunnerContext) {
         logger = runningBuild.getBuildLogger();
@@ -37,98 +37,115 @@ class PackAndPublishBuildProcess implements BuildProcess {
         octopnpConstants = new CommonConstants();
     }
 
+    public void interrupt() {
+        LOG.info("BuildProcess interrupt");
+        buildProcessFuture.cancel(true);
+    }
+
     public boolean isInterrupted() {
-        return false;
+        return buildProcessFuture.isCancelled() && isFinished();
     }
 
     public boolean isFinished() {
-        return isFinished;
-    }
-
-    public void interrupt() {
-        if (nugetProcess != null) {
-            nugetProcess.destroy();
-        }
+        return buildProcessFuture.isDone();
     }
 
     public void start() throws RunBuildException {
         final String nuspecPaths = runnerParameters.get(octopnpConstants.getNuspecPathsKey());
-        final List<String> nuspecFiles = resolveNuspecAbsoluteFileNames(nuspecPaths);
+        nuspecFiles = resolveNuspecAbsoluteFileNames(nuspecPaths);
         resetWorkingDir();
         extractNugetExe();
-        for (String nuspecFile : nuspecFiles) {
-            NugetCommandBuilder packCmdBuilder = createNugetPackCommandBuilder(nuspecFile);
-            runNuget(packCmdBuilder);
+        try {
+            buildProcessFuture = Executors.newSingleThreadExecutor().submit(this);
+            LOG.info("BuildProcess started");
+        } catch (final RejectedExecutionException e) {
+            String message = "BuildProcess couldn't start";
+            LOG.error(message, e);
+            throw new RunBuildException(message, e);
         }
+    }
 
+    @NotNull
+    public BuildFinishedStatus waitFor() throws RunBuildException {
+        try {
+            final BuildFinishedStatus status = buildProcessFuture.get();
+            LOG.info("BuildProcess finished");
+            if (status.isFailed()) {
+                logger.buildFailureDescription("Unable to pack or publish some release. Please check the build log for details.");
+            }
+            return status;
+        } catch (final ExecutionException e) {
+            String message = "BuildProcess failed";
+            LOG.error(message, e);
+            throw new RunBuildException(message, e);
+        } catch (final InterruptedException e) {
+            String message = "BuildProcess thread was interrupted";
+            LOG.error(message, e);
+            throw new RunBuildException(message, e);
+        } catch (final CancellationException e) {
+            LOG.info("BuildProcess was interrupted", e);
+            return BuildFinishedStatus.INTERRUPTED;
+        }
+    }
+
+    @Override
+    public BuildFinishedStatus call() throws Exception {
+        final List<Future<Long>> packExitCodes = runPackCommands();
+        for (Future<Long> exitCode : packExitCodes) {
+            if (failBuildOnExitCode && exitCode.get() != 0) {
+                return BuildFinishedStatus.FINISHED_FAILED;
+            }
+        }
+        final List<Future<Long>> pushExitCodes = runPushCommands();
+        for (Future<Long> exitCode : pushExitCodes) {
+            if (failBuildOnExitCode && exitCode.get() != 0) {
+                return BuildFinishedStatus.FINISHED_FAILED;
+            }
+        }
+        return BuildFinishedStatus.FINISHED_SUCCESS;
+    }
+
+    @NotNull
+    private List<Future<Long>> runPackCommands() throws InterruptedException {
+        logger.progressStarted("nuget pack in progress...");
+        final int watchdogTimeoutInSeconds = NugetCommandBuilder.timeoutInSeconds + 5;
+        final ArrayList<TeamCityProcessCallable> packTasks = new ArrayList<TeamCityProcessCallable>(nuspecFiles.size());
+        for (int i = 0; i < nuspecFiles.size(); i++) {
+            final String nuspecFile = nuspecFiles.get(i);
+            final String taskName = "Pack " + String.valueOf(i) + "/" + String.valueOf(nuspecFiles.size());
+            final BuildProgressLogger taskLogger = logger.getFlowLogger(nuspecFile);
+            final NugetCommandBuilder commandBuilder = createNugetPackCommandBuilder(nuspecFile);
+            packTasks.add(new TeamCityProcessCallable(commandBuilder, taskLogger, taskName, watchdogTimeoutInSeconds));
+        }
+        final List<Future<Long>> packExitCodes = Executors.newFixedThreadPool(8).invokeAll(packTasks);
+        logger.progressFinished();
+        return packExitCodes;
+    }
+
+    @NotNull
+    private List<Future<Long>> runPushCommands() throws InterruptedException, RunBuildException {
         File[] nupkgFiles = workingDir.listFiles(new FilenameFilter() {
             @Override
             public boolean accept(File dir, String name) {
                 return name.endsWith(".nupkg");
             }
         });
-        for (File nupkgFile : nupkgFiles) {
-            NugetCommandBuilder pushCmdBuilder = createNugetPushCommandBuilder(nupkgFile.getAbsolutePath());
-            runNuget(pushCmdBuilder);
+        if (nupkgFiles == null || nupkgFiles.length == 0) {
+            throw new RunBuildException("There are no packages to push");
         }
-    }
-
-    private void runNuget(@NotNull final NugetCommandBuilder cmdBuilder) throws RunBuildException {
-        logger.activityStarted("Nuget.exe", DefaultMessagesInfo.BLOCK_TYPE_INDENTATION);
-        logger.message("Running command: " + StringUtils.arrayToDelimitedString(cmdBuilder.buildMaskedCommand(), " "));
-        try {
-            Runtime runtime = Runtime.getRuntime();
-            nugetProcess = runtime.exec(cmdBuilder.buildCommand(), null, workingDir);
-            final LoggingProcessListener listener = new LoggingProcessListener(logger);
-            standardError = new OutputReaderThread(nugetProcess.getErrorStream(), new OutputWriter() {
-                public void write(String text) {
-                    listener.onErrorOutput(text);
-                }
-            });
-            standardOutput = new OutputReaderThread(nugetProcess.getInputStream(), new OutputWriter() {
-                public void write(String text) {
-                    listener.onStandardOutput(text);
-                }
-            });
-            standardError.start();
-            standardOutput.start();
-        } catch (IOException e) {
-            final String message = "Failed to run nuget.exe: " + e.getMessage();
-            Logger.getInstance(getClass().getName()).error(message, e);
-            throw new RunBuildException(message);
+        logger.progressStarted("nuget push in progress...");
+        final int watchdogTimeoutInSeconds = NugetCommandBuilder.timeoutInSeconds + 5;
+        final ArrayList<TeamCityProcessCallable> pushTasks = new ArrayList<TeamCityProcessCallable>(nupkgFiles.length);
+        for (int i = 0; i < nupkgFiles.length; i++) {
+            final String nupkgFile = nupkgFiles[i].getAbsolutePath();
+            final String taskName = "Push " + String.valueOf(i) + "/" + String.valueOf(nupkgFiles.length);
+            final BuildProgressLogger taskLogger = logger.getFlowLogger(nupkgFile);
+            final NugetCommandBuilder commandBuilder = createNugetPushCommandBuilder(nupkgFile);
+            pushTasks.add(new TeamCityProcessCallable(commandBuilder, taskLogger, taskName, watchdogTimeoutInSeconds));
         }
-    }
-
-    @NotNull
-    public BuildFinishedStatus waitFor() throws RunBuildException {
-        int exitCode;
-        try {
-            exitCode = nugetProcess.waitFor();
-            standardError.join();
-            standardOutput.join();
-            logger.message("nuget.exe exit code: " + exitCode);
-            logger.activityFinished("Nuget.exe", DefaultMessagesInfo.BLOCK_TYPE_INDENTATION);
-            isFinished = true;
-        } catch (InterruptedException e) {
-            isFinished = true;
-            final String message = "Unable to wait for nuget.exe: " + e.getMessage();
-            Logger.getInstance(getClass().getName()).error(message, e);
-            throw new RunBuildException(message);
-        }
-
-        if (exitCode == 0)
-            return BuildFinishedStatus.FINISHED_SUCCESS;
-
+        final List<Future<Long>> pushExitCodes = Executors.newFixedThreadPool(pushTasks.size()).invokeAll(pushTasks);
         logger.progressFinished();
-        String message = "Unable to create or deploy release. Please check the build log for details on the error.";
-
-        if (failBuildOnExitCode) {
-            logger.buildFailureDescription(message);
-            return BuildFinishedStatus.FINISHED_FAILED;
-        } else {
-            logger.error(message);
-            return BuildFinishedStatus.FINISHED_SUCCESS;
-        }
+        return pushExitCodes;
     }
 
     @NotNull
@@ -138,46 +155,21 @@ class PackAndPublishBuildProcess implements BuildProcess {
         if (runnerParameters.containsKey(packageVersionKey)) {
             packageVersion = runnerParameters.get(packageVersionKey);
         }
-
-        NugetCommandBuilder builder = new NugetCommandBuilder(workingDir);
-        builder.addArg("pack");
-        builder.addArg(nuspecFile);
-        builder.addArg("-NonInteractive");
-        builder.addArg("-NoPackageAnalysis");
-        if (!StringUtil.isEmptyOrSpaces(packageVersion)) {
-            builder.addArg("-Version");
-            builder.addArg(packageVersion);
-        }
-        builder.addArg("-OutputDirectory");
-        builder.addArg(workingDir.getAbsolutePath());
-        return builder;
+        return NugetCommandBuilder.forPack(workingDir, nuspecFile, packageVersion);
     }
 
     @NotNull
     private NugetCommandBuilder createNugetPushCommandBuilder(@NotNull final String nupkgFile) {
         final String octopusApiKey = runnerParameters.get(octopnpConstants.getOctopusApiKey());
         final String octopusServerUrl = runnerParameters.get(octopnpConstants.getOctopusServerUrlKey());
-
-        NugetCommandBuilder builder = new NugetCommandBuilder(workingDir);
-        builder.addArg("push");
-        builder.addArg(nupkgFile);
-        builder.addArg("-NonInteractive");
-        builder.addArg("-Source");
-        builder.addArg(octopusServerUrl);
-        builder.addArg("-ApiKey");
-        builder.addMaskableArg(octopusApiKey);
-        builder.addArg("-Timeout");
-        builder.addArg("300");
-        return builder;
+        return NugetCommandBuilder.forPush(workingDir, nupkgFile, octopusApiKey, octopusServerUrl);
     }
 
     private void extractNugetExe() throws RunBuildException {
         try {
             new EmbeddedResourceExtractor().extractNugetTo(workingDir.getAbsolutePath());
         } catch (Exception e) {
-            final String message = "Unable to extract nuget.exe into " + workingDir + ": " + e.getMessage();
-            Logger.getInstance(getClass().getName()).error(message, e);
-            throw new RunBuildException(message);
+            throw new RunBuildException("Unable to extract nuget.exe into " + workingDir, e);
         }
     }
 
@@ -185,12 +177,10 @@ class PackAndPublishBuildProcess implements BuildProcess {
         try {
             FileUtils.deleteDirectory(workingDir);
         } catch (Exception e) {
-            final String message = "Unable to delete temp working directory " + workingDir + ": " + e.getMessage();
-            Logger.getInstance(getClass().getName()).error(message, e);
-            throw new RunBuildException(message);
+            throw new RunBuildException("Unable to delete working directory " + workingDir, e);
         }
         if (!workingDir.mkdirs())
-            throw new RuntimeException("Unable to create temp working directory " + workingDir);
+            throw new RunBuildException("Unable to create working directory " + workingDir);
     }
 
     @NotNull
@@ -222,5 +212,3 @@ class PackAndPublishBuildProcess implements BuildProcess {
         return split.toArray(new String[split.size()]);
     }
 }
-
-
