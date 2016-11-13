@@ -56,7 +56,7 @@ public class PackAndPublishRunType extends RunType {
 
             @NotNull
             public Collection<InvalidProperty> process(@Nullable final Map<String, String> p) {
-                final Collection<InvalidProperty> result = new ArrayList<InvalidProperty>();
+                final Collection<InvalidProperty> result = new ArrayList<>();
                 if (p != null) {
 
                     checkNotEmpty(p, c.getOctopusApiKey(), "Octopus API key must be specified", result);
@@ -83,6 +83,6 @@ public class PackAndPublishRunType extends RunType {
     @Nullable
     @Override
     public Map<String, String> getDefaultRunnerProperties() {
-        return new HashMap<String, String>();
+        return new HashMap<>();
     }
 }

@@ -30,9 +30,9 @@
     <bytecodeTargetLevel>
       <module name="build" target="1.5" />
       <module name="octo-pnp" target="1.5" />
-      <module name="octo-pnp-agent" target="1.6" />
-      <module name="octo-pnp-common" target="1.6" />
-      <module name="octo-pnp-server" target="1.6" />
+      <module name="octo-pnp-agent" target="1.7" />
+      <module name="octo-pnp-common" target="1.7" />
+      <module name="octo-pnp-server" target="1.7" />
     </bytecodeTargetLevel>
   </component>
 </project>

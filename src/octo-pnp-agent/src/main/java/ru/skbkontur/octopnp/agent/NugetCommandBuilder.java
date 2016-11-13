@@ -17,7 +17,7 @@ class NugetCommandBuilder {
 
     private NugetCommandBuilder(@NotNull final File workingDir) {
         executable = new File(workingDir, "nuget.exe");
-        args = new ArrayList<Map.Entry<String, Boolean>>();
+        args = new ArrayList<>();
     }
 
     @NotNull
@@ -52,11 +52,11 @@ class NugetCommandBuilder {
     }
 
     private void addArg(@NotNull final String arg) {
-        args.add(new AbstractMap.SimpleEntry(arg, false));
+        args.add(new AbstractMap.SimpleEntry<>(arg, false));
     }
 
     private void addMaskableArg(@NotNull final String arg) {
-        args.add(new AbstractMap.SimpleEntry(arg, true));
+        args.add(new AbstractMap.SimpleEntry<>(arg, true));
     }
 
     @NotNull

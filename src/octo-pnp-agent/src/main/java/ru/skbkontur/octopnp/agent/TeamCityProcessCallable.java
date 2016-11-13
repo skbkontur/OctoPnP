@@ -34,10 +34,10 @@ class TeamCityProcessCallable implements Callable<Long> {
         Long exitCode;
         try {
             logger.message("Running command: " + commandBuilder.buildMaskedCommand());
-            exitCode = new Long(executor.execute(commandBuilder.buildCommand()));
+            exitCode = (long) executor.execute(commandBuilder.buildCommand());
         } catch (ExecuteException e) {
             logger.exception(e);
-            exitCode = new Long(e.getExitValue());
+            exitCode = (long) e.getExitValue();
         }
         if (watchDog.killedProcess()) {
             exitCode = KILLED_BY_WATCHDOG_EXIT_CODE;

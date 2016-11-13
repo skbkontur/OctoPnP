@@ -3,7 +3,6 @@ package ru.skbkontur.octopnp.agent;
 import com.intellij.openapi.diagnostic.Logger;
 import jetbrains.buildServer.RunBuildException;
 import jetbrains.buildServer.agent.*;
-import jetbrains.buildServer.messages.DefaultMessagesInfo;
 import jetbrains.buildServer.util.StringUtil;
 import jetbrains.buildServer.util.pathMatcher.AntPatternFileCollector;
 import org.apache.commons.io.FileUtils;
@@ -74,7 +73,7 @@ class PackAndPublishBuildProcess implements BuildProcess, Callable<BuildFinished
             final BuildFinishedStatus status = buildProcessFuture.get();
             LOG.info("BuildProcess finished");
             if (status.isFailed()) {
-                logger.buildFailureDescription("Unable to pack or publish some release. Please check the build log for details.");
+                logger.buildFailureDescription("Pack or publish failed. Please check the build log for details.");
             }
             return status;
         } catch (final ExecutionException e) {
@@ -111,7 +110,7 @@ class PackAndPublishBuildProcess implements BuildProcess, Callable<BuildFinished
     @NotNull
     private List<Future<Long>> runPackCommands() throws InterruptedException {
         final int watchdogTimeoutInSeconds = NugetCommandBuilder.timeoutInSeconds + 5;
-        final ArrayList<TeamCityProcessCallable> packTasks = new ArrayList<TeamCityProcessCallable>(nuspecFiles.size());
+        final ArrayList<TeamCityProcessCallable> packTasks = new ArrayList<>(nuspecFiles.size());
         for (int i = 0; i < nuspecFiles.size(); i++) {
             final String nuspecFile = nuspecFiles.get(i);
             final Path relativeNuspecPath = Paths.get(checkoutDir.getAbsolutePath()).relativize(Paths.get(nuspecFile));
@@ -120,8 +119,7 @@ class PackAndPublishBuildProcess implements BuildProcess, Callable<BuildFinished
             final NugetCommandBuilder commandBuilder = createNugetPackCommandBuilder(nuspecFile);
             packTasks.add(new TeamCityProcessCallable(commandBuilder, taskLogger, taskName, watchdogTimeoutInSeconds));
         }
-        final List<Future<Long>> packExitCodes = Executors.newFixedThreadPool(8).invokeAll(packTasks);
-        return packExitCodes;
+        return Executors.newFixedThreadPool(8).invokeAll(packTasks);
     }
 
     @NotNull
@@ -136,7 +134,7 @@ class PackAndPublishBuildProcess implements BuildProcess, Callable<BuildFinished
             throw new RunBuildException("There are no packages to push");
         }
         final int watchdogTimeoutInSeconds = NugetCommandBuilder.timeoutInSeconds + 5;
-        final ArrayList<TeamCityProcessCallable> pushTasks = new ArrayList<TeamCityProcessCallable>(nupkgFiles.length);
+        final ArrayList<TeamCityProcessCallable> pushTasks = new ArrayList<>(nupkgFiles.length);
         for (int i = 0; i < nupkgFiles.length; i++) {
             final String nupkgFile = nupkgFiles[i].getAbsolutePath();
             final String taskName = "Push " + String.valueOf(i + 1) + "/" + String.valueOf(nupkgFiles.length) + ": " + nupkgFiles[i].getName();
@@ -144,8 +142,7 @@ class PackAndPublishBuildProcess implements BuildProcess, Callable<BuildFinished
             final NugetCommandBuilder commandBuilder = createNugetPushCommandBuilder(nupkgFile);
             pushTasks.add(new TeamCityProcessCallable(commandBuilder, taskLogger, taskName, watchdogTimeoutInSeconds));
         }
-        final List<Future<Long>> pushExitCodes = Executors.newFixedThreadPool(pushTasks.size()).invokeAll(pushTasks);
-        return pushExitCodes;
+        return Executors.newFixedThreadPool(pushTasks.size()).invokeAll(pushTasks);
     }
 
     @NotNull
@@ -188,7 +185,7 @@ class PackAndPublishBuildProcess implements BuildProcess, Callable<BuildFinished
         logger.message("Resolving nuspecPaths: " + nuspecPaths);
         final List<File> files = AntPatternFileCollector.scanDir(checkoutDir, splitFileWildcards(nuspecPaths), new String[0], null);
         logger.message("Matched .nuspec files:");
-        final List<String> result = new ArrayList<String>(files.size());
+        final List<String> result = new ArrayList<>(files.size());
         if (files.size() == 0) {
             logger.message("  none");
         } else {
