@@ -3,6 +3,7 @@ package ru.skbkontur.octopnp.agent;
 import com.intellij.openapi.diagnostic.Logger;
 import jetbrains.buildServer.RunBuildException;
 import jetbrains.buildServer.agent.*;
+import jetbrains.buildServer.messages.DefaultMessagesInfo;
 import jetbrains.buildServer.util.StringUtil;
 import jetbrains.buildServer.util.pathMatcher.AntPatternFileCollector;
 import org.apache.commons.io.FileUtils;
@@ -12,6 +13,8 @@ import ru.skbkontur.octopnp.CommonConstants;
 
 import java.io.File;
 import java.io.FilenameFilter;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -107,18 +110,17 @@ class PackAndPublishBuildProcess implements BuildProcess, Callable<BuildFinished
 
     @NotNull
     private List<Future<Long>> runPackCommands() throws InterruptedException {
-        logger.progressStarted("nuget pack in progress...");
         final int watchdogTimeoutInSeconds = NugetCommandBuilder.timeoutInSeconds + 5;
         final ArrayList<TeamCityProcessCallable> packTasks = new ArrayList<TeamCityProcessCallable>(nuspecFiles.size());
         for (int i = 0; i < nuspecFiles.size(); i++) {
             final String nuspecFile = nuspecFiles.get(i);
-            final String taskName = "Pack " + String.valueOf(i) + "/" + String.valueOf(nuspecFiles.size());
+            final Path relativeNuspecPath = Paths.get(checkoutDir.getAbsolutePath()).relativize(Paths.get(nuspecFile));
+            final String taskName = "Pack " + String.valueOf(i + 1) + "/" + String.valueOf(nuspecFiles.size()) + ": " + relativeNuspecPath;
             final BuildProgressLogger taskLogger = logger.getFlowLogger(nuspecFile);
             final NugetCommandBuilder commandBuilder = createNugetPackCommandBuilder(nuspecFile);
             packTasks.add(new TeamCityProcessCallable(commandBuilder, taskLogger, taskName, watchdogTimeoutInSeconds));
         }
         final List<Future<Long>> packExitCodes = Executors.newFixedThreadPool(8).invokeAll(packTasks);
-        logger.progressFinished();
         return packExitCodes;
     }
 
@@ -133,18 +135,16 @@ class PackAndPublishBuildProcess implements BuildProcess, Callable<BuildFinished
         if (nupkgFiles == null || nupkgFiles.length == 0) {
             throw new RunBuildException("There are no packages to push");
         }
-        logger.progressStarted("nuget push in progress...");
         final int watchdogTimeoutInSeconds = NugetCommandBuilder.timeoutInSeconds + 5;
         final ArrayList<TeamCityProcessCallable> pushTasks = new ArrayList<TeamCityProcessCallable>(nupkgFiles.length);
         for (int i = 0; i < nupkgFiles.length; i++) {
             final String nupkgFile = nupkgFiles[i].getAbsolutePath();
-            final String taskName = "Push " + String.valueOf(i) + "/" + String.valueOf(nupkgFiles.length);
+            final String taskName = "Push " + String.valueOf(i + 1) + "/" + String.valueOf(nupkgFiles.length) + ": " + nupkgFiles[i].getName();
             final BuildProgressLogger taskLogger = logger.getFlowLogger(nupkgFile);
             final NugetCommandBuilder commandBuilder = createNugetPushCommandBuilder(nupkgFile);
             pushTasks.add(new TeamCityProcessCallable(commandBuilder, taskLogger, taskName, watchdogTimeoutInSeconds));
         }
         final List<Future<Long>> pushExitCodes = Executors.newFixedThreadPool(pushTasks.size()).invokeAll(pushTasks);
-        logger.progressFinished();
         return pushExitCodes;
     }
 

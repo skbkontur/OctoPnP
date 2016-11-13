@@ -42,7 +42,7 @@ class TeamCityProcessCallable implements Callable<Long> {
         if (watchDog.killedProcess()) {
             exitCode = KILLED_BY_WATCHDOG_EXIT_CODE;
         }
-        logger.message("nuget.exe exit code: " + exitCode);
+        logger.message("Exit code: " + exitCode);
         logger.activityFinished(taskName, DefaultMessagesInfo.BLOCK_TYPE_INDENTATION);
         return exitCode;
     }
