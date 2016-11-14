@@ -164,7 +164,7 @@ class PackAndPublishBuildProcess implements BuildProcess, Callable<BuildFinished
         String pushToUrl;
         try {
             URL url = new URL(octopusServerUrl);
-            pushToUrl = url.getProtocol() + "://" + url.getAuthority() + "/nuget/packages";
+            pushToUrl = url.getProtocol() + "://" + url.getAuthority() + "/nuget/packages?replace=true";
         } catch (MalformedURLException e) {
             throw new RunBuildException("Failed to parse octopusServerUrl: " + octopusServerUrl, e);
         }
