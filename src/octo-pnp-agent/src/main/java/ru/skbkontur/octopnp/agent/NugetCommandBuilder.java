@@ -37,13 +37,13 @@ class NugetCommandBuilder {
     }
 
     @NotNull
-    static NugetCommandBuilder forPush(@NotNull final File workingDir, @NotNull final String nupkgFile, @NotNull final String octopusApiKey, @NotNull final String octopusServerUrl) {
+    static NugetCommandBuilder forPush(@NotNull final File workingDir, @NotNull final String nupkgFile, @NotNull final String octopusApiKey, @NotNull final String pushToUrl) {
         NugetCommandBuilder builder = new NugetCommandBuilder(workingDir);
         builder.addArg("push");
         builder.addArg(nupkgFile);
         builder.addArg("-NonInteractive");
         builder.addArg("-Source");
-        builder.addArg(octopusServerUrl);
+        builder.addArg(pushToUrl);
         builder.addArg("-ApiKey");
         builder.addMaskableArg(octopusApiKey);
         builder.addArg("-Timeout");

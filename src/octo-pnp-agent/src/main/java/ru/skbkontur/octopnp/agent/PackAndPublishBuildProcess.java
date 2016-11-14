@@ -12,6 +12,8 @@ import ru.skbkontur.octopnp.CommonConstants;
 
 import java.io.File;
 import java.io.FilenameFilter;
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -156,10 +158,17 @@ class PackAndPublishBuildProcess implements BuildProcess, Callable<BuildFinished
     }
 
     @NotNull
-    private NugetCommandBuilder createNugetPushCommandBuilder(@NotNull final String nupkgFile) {
+    private NugetCommandBuilder createNugetPushCommandBuilder(@NotNull final String nupkgFile) throws RunBuildException {
         final String octopusApiKey = runnerParameters.get(octopnpConstants.getOctopusApiKey());
         final String octopusServerUrl = runnerParameters.get(octopnpConstants.getOctopusServerUrlKey());
-        return NugetCommandBuilder.forPush(workingDir, nupkgFile, octopusApiKey, octopusServerUrl);
+        String pushToUrl;
+        try {
+            URL url = new URL(octopusServerUrl);
+            pushToUrl = url.getProtocol() + "://" + url.getAuthority() + "/nuget/packages";
+        } catch (MalformedURLException e) {
+            throw new RunBuildException("Failed to parse octopusServerUrl: " + octopusServerUrl, e);
+        }
+        return NugetCommandBuilder.forPush(workingDir, nupkgFile, octopusApiKey, pushToUrl);
     }
 
     private void extractNugetExe() throws RunBuildException {
