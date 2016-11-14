@@ -13,7 +13,7 @@
   <td>
     <props:textProperty name="${keys.octopusServerUrlKey}" className="longField"/>
     <span class="error" id="error_${keys.octopusServerUrlKey}"></span>
-    <span class="smallNote">Specify Octopus web portal URL</span>
+    <span class="smallNote">Specify Octopus web portal URL (e.g. https://octo.skbkontur.ru)</span>
   </td>
 </tr>
 <tr>
