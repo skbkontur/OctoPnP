@@ -1,6 +1,6 @@
 language: java
 script: true
-before_deploy: mvn clean package
+before_deploy: cd src && mvn clean package
 deploy:
   provider: releases
   api_key:
