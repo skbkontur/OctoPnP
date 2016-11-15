@@ -1,5 +1,5 @@
 language: java
-script: true
+script: pushd src && mvn clean compile && popd
 before_deploy: pushd src && mvn clean package && popd
 deploy:
   provider: releases
