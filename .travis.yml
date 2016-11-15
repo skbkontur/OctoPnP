@@ -1,11 +1,11 @@
 language: java
 script: true
-before_deploy: cd src && mvn clean package
+before_deploy: pushd src && mvn clean package && popd
 deploy:
   provider: releases
   api_key:
     secure: SbCCieu/Kcqkl3xJNOTvYa1gV+p759P2rdd5dxycdtvuZ9NmUJEc9rnX6ilbuWa6ATEyi8eD0Ietq4pKgu3LF6el3M8Zhvyd2G9EnFjNfYxIS/suN2e6LAqXRHWq3/+Z5dd5gopXuKah6ExHQhZPlWE0VG6LTAb4Dr1OaF2XEyD6RZ/IKNW2A8yb+TVXltwbfdgo+tM99YtB7TzJo/YJBSuzuLNQt45Xw7CU6zC596lZ4uncOuOGooyTPevwrSG7DEFdknv1n8cTAjAWiLt8shXTtEEn/XoM5atJe6LBy/9KhBQJbmGDA6lFdUsG3otRndmOuaYN2hkAiiB9E2Fq7SPRGIFI5QZfb6X4ODeVBIyDR7e9QlC3eX2XQmHoh5RjB0ds4hLx+ON0E2HlDB1+KcdSQmEHHVpnfTmzmskN+N/xKq6+7B0AO5C1EWxkiLu6jDxEP4KbccOB/Ax80LMTktNSntXjgOuyHoZUzJwQu3YsaUg7ycRM5hTjCb9H8r0a55tHy1sfUNNG29Q9Ivp0dsLUHjtp8B3e+jWkjrODhqbTeRVRp75nToJ9dSvT4u025DS7SZ8jWRRApbnS8H+EdCvqOrwYFMRtBPmqvN1Rpa3Ns+oWxk0OIsYFUQVDFX8EA/CARSf9VdoKZeqnM+4+ddMKH/JQdv7LGq9b2ZS5Wm4=
-  file: src/build/target/octo-pnp.zip
+  file: src/target/octo-pnp.zip
   skip_cleanup: true
   on:
     repo: skbkontur/OctoPnP
