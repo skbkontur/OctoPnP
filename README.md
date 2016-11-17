@@ -3,6 +3,7 @@
 # OctoPnP TeamCity plugin
 
 OctoPnP provides "Pack and Publish" functionality for Octopus-based deployments automation.
+![Build runner configuration sample](./octo-pnp.png?raw=true)
 
 ## Build and test
  1. Open `src` project in IntelliJ Idea.
