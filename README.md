@@ -1,8 +1,9 @@
-[![Build Status](https://travis-ci.org/skbkontur/OctoPnP.svg?branch=master)](https://travis-ci.org/skbkontur/OctoPnP)
-
 # OctoPnP TeamCity plugin
 
+[![Build Status](https://travis-ci.org/skbkontur/OctoPnP.svg?branch=master)](https://travis-ci.org/skbkontur/OctoPnP)
+
 OctoPnP provides "Pack and Publish" functionality for Octopus-based deployments automation.
+
 ![Build runner configuration sample](./octo-pnp.png?raw=true)
 
 ## Build and test
