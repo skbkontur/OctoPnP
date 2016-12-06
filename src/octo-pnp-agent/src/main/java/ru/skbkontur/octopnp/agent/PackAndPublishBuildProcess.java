@@ -83,6 +83,7 @@ class PackAndPublishBuildProcess implements BuildProcess, Callable<BuildFinished
             LOG.error(message, e);
             throw new RunBuildException(message, e);
         } catch (final InterruptedException e) {
+            Thread.interrupted();
             String message = "BuildProcess thread was interrupted";
             LOG.error(message, e);
             throw new RunBuildException(message, e);
