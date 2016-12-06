@@ -8,12 +8,11 @@ import org.jetbrains.annotations.Nullable;
 import java.io.File;
 import java.util.AbstractMap;
 import java.util.ArrayList;
-import java.util.Map;
 
 class NugetCommandBuilder {
     final static int timeoutInSeconds = 300;
     private final File executable;
-    private final ArrayList<Map.Entry<String, Boolean>> args;
+    private final ArrayList<AbstractMap.SimpleEntry<String, Boolean>> args;
 
     private NugetCommandBuilder(@NotNull final File workingDir) {
         executable = new File(workingDir, "nuget.exe");
@@ -72,7 +71,7 @@ class NugetCommandBuilder {
     @NotNull
     private CommandLine buildCommand(boolean mask) {
         final CommandLine result = new CommandLine(executable);
-        for (Map.Entry<String, Boolean> arg : args) {
+        for (AbstractMap.SimpleEntry<String, Boolean> arg : args) {
             result.addArgument(mask && arg.getValue() ? "SECRET" : arg.getKey());
         }
         return result;
