@@ -44,5 +44,12 @@
         <span class="error" id="error_${keys.packageVersionKey}"></span>
         <span class="smallNote">The number to use for this release, e.g., <code>1.0.%build.number%</code>. Overrides the version number from the .nuspec file.</span>
       </td>
-    </tr>
+   </tr>
+   <tr>
+     <th>Push Concurrency:</th>
+     <td>
+       <props:textProperty name="${keys.pushConcurrencyKey}"/>
+       <span class="smallNote">The number of push threads. If less or equal 0 will push packages in parallel.</span>
+      </td>
+   </tr>
 </l:settingsGroup>

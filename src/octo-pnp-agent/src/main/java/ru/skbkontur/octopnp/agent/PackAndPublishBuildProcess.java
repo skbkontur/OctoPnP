@@ -140,12 +140,30 @@ class PackAndPublishBuildProcess implements BuildProcess, Callable<BuildFinished
         final ArrayList<TeamCityProcessCallable> pushTasks = new ArrayList<>(nupkgFiles.length);
         for (int i = 0; i < nupkgFiles.length; i++) {
             final String nupkgFile = nupkgFiles[i].getAbsolutePath();
-            final String taskName = "Push " + String.valueOf(i + 1) + "/" + String.valueOf(nupkgFiles.length) + ": " + nupkgFiles[i].getName();
+            final String taskName = "Push " + String.valueOf(i + 1) + "/" + String.valueOf(nupkgFiles.length) + ": " + nupkgFiles[i].getName() + " (" +  nupkgFiles[i].length()/1024 + " kb)";
             final BuildProgressLogger taskLogger = logger.getFlowLogger(nupkgFile);
             final NugetCommandBuilder commandBuilder = createNugetPushCommandBuilder(nupkgFile);
             pushTasks.add(new TeamCityProcessCallable(commandBuilder, taskLogger, taskName, watchdogTimeoutInSeconds));
         }
-        return Executors.newFixedThreadPool(pushTasks.size()).invokeAll(pushTasks);
+        int pushConcurrency = getPushConcurrencyParameter();
+        if (pushConcurrency <= 0)
+            pushConcurrency = pushTasks.size();
+        logger.message("Using pushConcurrency value: " + pushConcurrency);
+        return Executors.newFixedThreadPool(pushConcurrency).invokeAll(pushTasks);
+    }
+
+    private int getPushConcurrencyParameter() {
+        final String pushConcurrencyKey = octopnpConstants.getPushConcurrencyKey();
+        if (!runnerParameters.containsKey(pushConcurrencyKey)) {
+            return -1;
+        }
+        final String pushConcurrencyString = runnerParameters.get(pushConcurrencyKey);
+        try {
+            return Integer.parseInt(pushConcurrencyString);
+        } catch (NumberFormatException e) {
+            logger.message("Wrong format for push concurrency parameter: " + pushConcurrencyString);
+            return -1;
+        }
     }
 
     @NotNull

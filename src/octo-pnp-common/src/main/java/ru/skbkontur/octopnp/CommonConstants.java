@@ -18,4 +18,8 @@ public class CommonConstants {
     public String getPackageVersionKey() {
         return "package_version";
     }
+
+    public String getPushConcurrencyKey() {
+        return "push_concurrency";
+    }
 }
